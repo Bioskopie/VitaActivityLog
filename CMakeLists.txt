@@ -17,7 +17,6 @@ set(VITA_VERSION  "01.00")
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-q -Wall -O2 -fno-builtin -Wno-format-truncation")
 
-# 1. Build the 3DS Activity Log VPK Application
 add_executable(VitaActivityLog main.c)
 
 target_link_libraries(VitaActivityLog
@@ -42,13 +41,14 @@ target_link_libraries(VitaActivityLog
 
 vita_create_self(eboot.bin VitaActivityLog UNSAFE)
 
-# Automatically bundle custom LiveArea icons if present in sce_sys/
 set(VPK_EXTRA_ARGS "")
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/icon0.png")
-  list(APPEND VPK_EXTRA_ARGS ICON "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/icon0.png")
+  list(APPEND VPK_EXTRA_ARGS FILE "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/icon0.png" sce_sys/icon0.png)
 endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/startup.png")
   list(APPEND VPK_EXTRA_ARGS FILE "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/startup.png" sce_sys/livearea/contents/startup.png)
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/livearea/contents/startup.png")
+  list(APPEND VPK_EXTRA_ARGS FILE "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/livearea/contents/startup.png" sce_sys/livearea/contents/startup.png)
 endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/livearea/contents/bg.png")
   list(APPEND VPK_EXTRA_ARGS FILE "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/livearea/contents/bg.png" sce_sys/livearea/contents/bg.png)
@@ -62,33 +62,3 @@ vita_create_vpk(VitaActivityLog.vpk ${VITA_TITLEID} eboot.bin
   NAME ${VITA_APP_NAME}
   ${VPK_EXTRA_ARGS}
 )
-
-# Reset VitaSDK macro flags before building the plugin
-set(VITA_ELF_CREATE_FLAGS "")
-set(VITA_MAKE_FSELF_FLAGS "")
-
-# 2. Generate exports.yml and build the Background Plugin (activity_log.suprx)
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/exports.yml"
-"ActivityLogPlugin:\n"
-"  attributes: 0\n"
-"  version:\n"
-"    major: 1\n"
-"    minor: 0\n"
-"  main:\n"
-"    start: module_start\n"
-"    stop: module_stop\n"
-)
-
-add_executable(activity_log_elf plugin.c)
-set_target_properties(activity_log_elf PROPERTIES LINK_FLAGS "-Wl,-q -nostdlib")
-
-target_link_libraries(activity_log_elf
-  SceLibc_stub
-  SceLibKernel_stub
-  SceKernelThreadMgr_stub
-  SceIofilemgr_stub
-  SceRtc_stub
-  gcc
-)
-
-vita_create_self(activity_log.suprx activity_log_elf CONFIG ${CMAKE_CURRENT_BINARY_DIR}/exports.yml UNSAFE)
