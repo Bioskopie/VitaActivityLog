@@ -41,9 +41,26 @@ target_link_libraries(VitaActivityLog
 )
 
 vita_create_self(eboot.bin VitaActivityLog UNSAFE)
+
+# Automatically bundle custom LiveArea icons if present in sce_sys/
+set(VPK_EXTRA_ARGS "")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/icon0.png")
+  list(APPEND VPK_EXTRA_ARGS ICON "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/icon0.png")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/startup.png")
+  list(APPEND VPK_EXTRA_ARGS FILE "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/startup.png" sce_sys/livearea/contents/startup.png)
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/livearea/contents/bg.png")
+  list(APPEND VPK_EXTRA_ARGS FILE "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/livearea/contents/bg.png" sce_sys/livearea/contents/bg.png)
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/livearea/contents/template.xml")
+  list(APPEND VPK_EXTRA_ARGS FILE "${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/livearea/contents/template.xml" sce_sys/livearea/contents/template.xml)
+endif()
+
 vita_create_vpk(VitaActivityLog.vpk ${VITA_TITLEID} eboot.bin
   VERSION ${VITA_VERSION}
   NAME ${VITA_APP_NAME}
+  ${VPK_EXTRA_ARGS}
 )
 
 # Reset VitaSDK macro flags before building the plugin
@@ -69,7 +86,6 @@ target_link_libraries(activity_log_elf
   SceLibc_stub
   SceLibKernel_stub
   SceKernelThreadMgr_stub
-  SceAppMgr_stub
   SceIofilemgr_stub
   SceRtc_stub
   gcc
