@@ -32,9 +32,9 @@ typedef struct {
 typedef struct {
     char title_id[12];
     char name[128];
-    uint32_t base_seconds;     // Manual or TrackPlug imported baseline
-    uint32_t logged_seconds;   // Total from daily.bin
-    uint32_t period_seconds;   // Filtered period seconds (Day/Week/Month/Year/All)
+    uint32_t base_seconds;
+    uint32_t logged_seconds;
+    uint32_t period_seconds;
     uint32_t total_launches;
     uint16_t first_year, last_year;
     uint8_t first_month, first_day, last_month, last_day;
@@ -66,10 +66,8 @@ static uint32_t BTN_CANCEL  = SCE_CTRL_CIRCLE;
 static const char *STR_CONFIRM = "X";
 static const char *STR_CANCEL  = "O";
 
-// Selected date for filtering
 static int sel_year = 2026, sel_month = 1, sel_day = 1;
 
-// SFO Parser to read real game title
 static int parse_sfo_title(const char *path, char *out_title, size_t max_len) {
     SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
     if (fd < 0) return 0;
@@ -80,7 +78,7 @@ static int parse_sfo_title(const char *path, char *out_title, size_t max_len) {
     if (read < 20) return 0;
 
     uint32_t magic = *(uint32_t *)(buf + 0);
-    if (magic != 0x46535000) return 0; // "\0PSF"
+    if (magic != 0x46535000) return 0;
 
     uint32_t key_off  = *(uint32_t *)(buf + 8);
     uint32_t data_off = *(uint32_t *)(buf + 12);
@@ -111,7 +109,7 @@ static int parse_sfo_title(const char *path, char *out_title, size_t max_len) {
 }
 
 static int find_or_add_game(const char *title_id) {
-    if (strncmp(title_id, "NPXS", 4) == 0 || strcmp(title_id, "ACTLOG3DS") == 0) return -1;
+    if (strncmp(title_id, "NPXS", 4) == 0 || strcmp(title_id, "ACTLOG3DS") == 0 || strcmp(title_id, "VITASHELL") == 0) return -1;
     for (int i = 0; i < game_count; i++) {
         if (strcmp(games[i].title_id, title_id) == 0) return i;
     }
@@ -185,8 +183,20 @@ static void save_manual_base(const char *title_id, uint32_t base_seconds) {
     sceIoClose(fd);
 }
 
+static void load_daily_file(const char *path) {
+    SceUID lfd = sceIoOpen(path, SCE_O_RDONLY, 0);
+    if (lfd >= 0) {
+        DailyRecord drec;
+        while (daily_count < MAX_DAILY_RECORDS &&
+               sceIoRead(lfd, &drec, sizeof(DailyRecord)) == sizeof(DailyRecord)) {
+            daily_logs[daily_count++] = drec;
+            find_or_add_game(drec.title_id);
+        }
+        sceIoClose(lfd);
+    }
+}
+
 static void scan_all_data(void) {
-    // 1. Scan installed apps in ux0:/app
     SceUID dfd = sceIoDopen("ux0:/app");
     if (dfd >= 0) {
         SceIoDirent dir;
@@ -198,7 +208,6 @@ static void scan_all_data(void) {
         sceIoDclose(dfd);
     }
 
-    // 2. Import legacy TrackPlug records if present (ux0:/data/TrackPlug/Records/*.bin)
     dfd = sceIoDopen("ux0:/data/TrackPlug/Records");
     if (dfd >= 0) {
         SceIoDirent dir;
@@ -223,7 +232,6 @@ static void scan_all_data(void) {
         sceIoDclose(dfd);
     }
 
-    // 3. Load manual baseline edits (overrides TrackPlug baseline when edited)
     SceUID bfd = sceIoOpen("ux0:/data/ActivityLog/manual_base.bin", SCE_O_RDONLY, 0);
     if (bfd >= 0) {
         BaseRecord rec;
@@ -234,19 +242,10 @@ static void scan_all_data(void) {
         sceIoClose(bfd);
     }
 
-    // 4. Load daily session logs
     if (!daily_logs) daily_logs = calloc(MAX_DAILY_RECORDS, sizeof(DailyRecord));
     daily_count = 0;
-    SceUID lfd = sceIoOpen("ux0:/data/ActivityLog/daily.bin", SCE_O_RDONLY, 0);
-    if (lfd >= 0) {
-        DailyRecord drec;
-        while (daily_count < MAX_DAILY_RECORDS &&
-               sceIoRead(lfd, &drec, sizeof(DailyRecord)) == sizeof(DailyRecord)) {
-            daily_logs[daily_count++] = drec;
-            find_or_add_game(drec.title_id);
-        }
-        sceIoClose(lfd);
-    }
+    load_daily_file("ur0:/temp/actlog_daily.bin");
+    load_daily_file("ux0:/data/ActivityLog/daily.bin");
 }
 
 static int days_in_month(int y, int m) {
@@ -255,7 +254,6 @@ static int days_in_month(int y, int m) {
     return dm[(m - 1) % 12];
 }
 
-// Convert Y/M/D to linear day number for easy 7-day Week range comparison
 static int to_linear_days(int y, int m, int d) {
     int days = y * 365 + (y / 4) - (y / 100) + (y / 400);
     for (int i = 1; i < m; i++) days += days_in_month(y, i);
@@ -393,6 +391,13 @@ int main(void) {
             save_settings();
         }
 
+        // Press START anytime to reload daily logs live
+        if (pressed & SCE_CTRL_START) {
+            scan_all_data();
+            recalculate_stats(filter, &total_period_secs);
+            sort_games_by_period();
+        }
+
         if (state == VIEW_GAME_DETAILS) {
             GameEntry *g = &games[cursor];
             if (!editing_time) {
@@ -470,7 +475,6 @@ int main(void) {
             }
         }
 
-        // Theme Colors
         uint32_t col_bg     = dark_mode ? RGBA8(28, 30, 34, 255)   : RGBA8(240, 242, 238, 255);
         uint32_t col_grid   = dark_mode ? RGBA8(42, 45, 52, 255)   : RGBA8(220, 224, 218, 255);
         uint32_t col_card   = dark_mode ? RGBA8(48, 52, 60, 255)   : RGBA8(255, 255, 255, 255);
@@ -483,11 +487,9 @@ int main(void) {
         vita2d_set_clear_color(col_bg);
         vita2d_clear_screen();
 
-        // Draw 3DS Tiled Grid Background
         for (int x = 0; x < 960; x += 24) vita2d_draw_line(x, 0, x, 544, col_grid);
         for (int y = 0; y < 544; y += 24) vita2d_draw_line(0, y, 960, y, col_grid);
 
-        // Top 3DS Header Bar
         vita2d_draw_rectangle(0, 0, 960, 52, col_header);
         const char *filter_names[] = {"Day", "7-Day Week", "Month", "Year", "All-Time"};
         const char *mode_title = (state == VIEW_DAILY_RECORDS) ? "Daily Records" :
@@ -523,9 +525,9 @@ int main(void) {
             vita2d_pgf_draw_text(font, 230, 145, col_text, 1.3f, g->name);
             vita2d_pgf_draw_textf(font, 230, 180, col_text, 0.95f, "Title ID: %s", g->title_id);
 
-            vita2d_pgf_draw_textf(font, 110, 250, col_text, 1.1f, "Total Time Played:     %02uh %02um", total_sec / 3600, (total_sec % 3600) / 60);
+            vita2d_pgf_draw_textf(font, 110, 250, col_text, 1.1f, "Total Time Played:     %02uh %02um %02us", total_sec / 3600, (total_sec % 3600) / 60, total_sec % 60);
             vita2d_pgf_draw_textf(font, 110, 290, col_text, 1.0f, "Baseline / Imported:   %02uh %02um", g->base_seconds / 3600, (g->base_seconds % 3600) / 60);
-            vita2d_pgf_draw_textf(font, 110, 330, col_text, 1.0f, "Logged Daily Time:     %02uh %02um   (Times Played: %u)", g->logged_seconds / 3600, (g->logged_seconds % 3600) / 60, g->total_launches);
+            vita2d_pgf_draw_textf(font, 110, 330, col_text, 1.0f, "Logged Daily Time:     %02uh %02um %02us   (Times Played: %u)", g->logged_seconds / 3600, (g->logged_seconds % 3600) / 60, g->logged_seconds % 60, g->total_launches);
             vita2d_pgf_draw_textf(font, 110, 370, col_text, 1.0f, "Average Play Time:     %02uh %02um", avg_sec / 3600, (avg_sec % 3600) / 60);
 
             if (g->first_year > 0) {
@@ -542,10 +544,9 @@ int main(void) {
                 vita2d_pgf_draw_textf(font, 245, 345, col_text, 0.9f, "[%s] Save Changes     [%s] Cancel", STR_CONFIRM, STR_CANCEL);
             }
         } else {
-            // Subheader Total Time Banner
             vita2d_draw_rectangle(30, 62, 900, 36, col_card);
-            vita2d_pgf_draw_textf(font, 45, 86, col_text, 1.0f, "Period Total Play Time: %02uh %02um   |   Games Detected: %d",
-                total_period_secs / 3600, (total_period_secs % 3600) / 60, game_count);
+            vita2d_pgf_draw_textf(font, 45, 86, col_text, 1.0f, "Period Total: %02uh %02um %02us   |   Games: %d   |   [START] Refresh",
+                total_period_secs / 3600, (total_period_secs % 3600) / 60, total_period_secs % 60, game_count);
 
             uint32_t max_secs = (game_count > 0 && games[0].period_seconds > 0) ? games[0].period_seconds : 3600;
 
@@ -564,21 +565,19 @@ int main(void) {
 
                 vita2d_pgf_draw_textf(font, 108, y + 26, col_text, 1.0f, "#%d  %s", idx + 1, g->name);
 
-                // 3DS Playtime Progress Bar
                 float ratio = (float)g->period_seconds / (float)max_secs;
                 if (ratio > 1.0f) ratio = 1.0f;
-                int bar_w = (int)(ratio * 520.0f);
+                int bar_w = (int)(ratio * 500.0f);
                 if (g->period_seconds > 0 && bar_w < 8) bar_w = 8;
 
-                vita2d_draw_rectangle(108, y + 36, 520, 20, col_grid);
+                vita2d_draw_rectangle(108, y + 36, 500, 20, col_grid);
                 if (bar_w > 0) vita2d_draw_rectangle(108, y + 36, bar_w, 20, col_bar);
 
-                vita2d_pgf_draw_textf(font, 650, y + 51, col_text, 1.05f, "%02uh %02um",
-                    g->period_seconds / 3600, (g->period_seconds % 3600) / 60);
+                vita2d_pgf_draw_textf(font, 625, y + 51, col_text, 1.0f, "%02uh %02um %02us",
+                    g->period_seconds / 3600, (g->period_seconds % 3600) / 60, g->period_seconds % 60);
             }
         }
 
-        // Bottom 3DS Navigation Bar
         vita2d_draw_rectangle(0, 504, 960, 40, col_card);
         if (state == VIEW_GAME_DETAILS) {
             vita2d_pgf_draw_textf(font, 20, 530, col_text, 0.9f,
@@ -586,7 +585,7 @@ int main(void) {
                 STR_CANCEL, dark_mode ? "Light" : "Dark");
         } else {
             vita2d_pgf_draw_textf(font, 20, 530, col_text, 0.9f,
-                "[%s] Game Info & Edit Time   [SELECT] Switch View   [Left/Right] Date   [Square] %s Mode",
+                "[%s] Info/Edit   [SELECT] View   [L/R] Filter   [START] Refresh   [Square] %s",
                 STR_CONFIRM, dark_mode ? "Light" : "Dark");
         }
 
