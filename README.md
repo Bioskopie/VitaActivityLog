@@ -56,3 +56,4 @@ To make this app work properly on your PS Vita, your console must meet the follo
 
 * Built using **VitaSDK** and **vita2d**.
 * Inspired by the official Nintendo 3DS Activity Log app.
+* Built with Gemini Argon
