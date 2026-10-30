@@ -14,6 +14,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Convert LiveArea PNGs to PS Vita 8-bit Indexed Format
+        run: |
+          apt-get update && apt-get install -y pngquant imagemagick || true
+          if [ -f "sce_sys/icon0.png" ]; then
+            convert "sce_sys/icon0.png" -resize 128x128\! "sce_sys/icon0.png" || true
+            pngquant --force --ext .png 256 "sce_sys/icon0.png" || true
+          fi
+          if [ -f "sce_sys/startup.png" ]; then
+            convert "sce_sys/startup.png" -resize 284x128\! "sce_sys/startup.png" || true
+            pngquant --force --ext .png 256 "sce_sys/startup.png" || true
+          fi
+          if [ -f "sce_sys/livearea/contents/bg.png" ]; then
+            convert "sce_sys/livearea/contents/bg.png" -resize 840x500\! "sce_sys/livearea/contents/bg.png" || true
+            pngquant --force --ext .png 256 "sce_sys/livearea/contents/bg.png" || true
+          fi
+
       - name: Compile VPK and SUPRX Plugin
         run: |
           mkdir -p build
