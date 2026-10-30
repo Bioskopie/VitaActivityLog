@@ -22,15 +22,19 @@ jobs:
             pngquant --force --ext .png 256 "sce_sys/icon0.png" || true
           fi
           if [ -f "sce_sys/startup.png" ]; then
-            convert "sce_sys/startup.png" -resize 284x128\! "sce_sys/startup.png" || true
+            convert "sce_sys/startup.png" -background none -resize 280x158\! "sce_sys/startup.png" || true
             pngquant --force --ext .png 256 "sce_sys/startup.png" || true
+          fi
+          if [ -f "sce_sys/livearea/contents/startup.png" ]; then
+            convert "sce_sys/livearea/contents/startup.png" -background none -resize 280x158\! "sce_sys/livearea/contents/startup.png" || true
+            pngquant --force --ext .png 256 "sce_sys/livearea/contents/startup.png" || true
           fi
           if [ -f "sce_sys/livearea/contents/bg.png" ]; then
             convert "sce_sys/livearea/contents/bg.png" -resize 840x500\! "sce_sys/livearea/contents/bg.png" || true
             pngquant --force --ext .png 256 "sce_sys/livearea/contents/bg.png" || true
           fi
 
-      - name: Compile VPK and SUPRX Plugin
+      - name: Compile VPK
         run: |
           mkdir -p build
           cd build
@@ -43,4 +47,3 @@ jobs:
           name: VitaActivityLog-Release
           path: |
             build/VitaActivityLog.vpk
-            build/activity_log.suprx
