@@ -15,7 +15,7 @@ set(VITA_APP_NAME "3DS Activity Log")
 set(VITA_TITLEID  "ACTLOG3DS")
 set(VITA_VERSION  "01.00")
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-q -Wall -O2 -Wno-format-truncation")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-q -Wall -O2 -fno-builtin -Wno-format-truncation")
 
 # 1. Build the 3DS Activity Log VPK Application
 add_executable(VitaActivityLog main.c)
@@ -46,6 +46,10 @@ vita_create_vpk(VitaActivityLog.vpk ${VITA_TITLEID} eboot.bin
   NAME ${VITA_APP_NAME}
 )
 
+# Reset VitaSDK macro flags before building the plugin
+set(VITA_ELF_CREATE_FLAGS "")
+set(VITA_MAKE_FSELF_FLAGS "")
+
 # 2. Generate exports.yml and build the Background Plugin (activity_log.suprx)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/exports.yml"
 "ActivityLogPlugin:\n"
@@ -59,9 +63,10 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/exports.yml"
 )
 
 add_executable(activity_log_elf plugin.c)
-set_target_properties(activity_log_elf PROPERTIES LINK_FLAGS "-nostdlib")
+set_target_properties(activity_log_elf PROPERTIES LINK_FLAGS "-Wl,-q -nostdlib")
 
 target_link_libraries(activity_log_elf
+  SceLibc_stub
   SceLibKernel_stub
   SceKernelThreadMgr_stub
   SceAppMgr_stub
@@ -70,4 +75,4 @@ target_link_libraries(activity_log_elf
   gcc
 )
 
-vita_create_self(activity_log.suprx activity_log_elf UNSAFE CONFIG ${CMAKE_CURRENT_BINARY_DIR}/exports.yml)
+vita_create_self(activity_log.suprx activity_log_elf CONFIG ${CMAKE_CURRENT_BINARY_DIR}/exports.yml UNSAFE)
