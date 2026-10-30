@@ -15,7 +15,7 @@ set(VITA_APP_NAME "3DS Activity Log")
 set(VITA_TITLEID  "ACTLOG3DS")
 set(VITA_VERSION  "01.00")
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -O2")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-q -Wall -O2 -Wno-format-truncation")
 
 # 1. Build the 3DS Activity Log VPK Application
 add_executable(VitaActivityLog main.c)
@@ -63,10 +63,10 @@ set_target_properties(activity_log_elf PROPERTIES LINK_FLAGS "-nostdlib")
 
 target_link_libraries(activity_log_elf
   SceLibKernel_stub
+  SceKernelThreadMgr_stub
   SceAppMgr_stub
   SceIofilemgr_stub
   SceRtc_stub
-  SceThreadmgr_stub
   gcc
 )
 
