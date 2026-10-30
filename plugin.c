@@ -83,34 +83,32 @@ static int tracker_thread(SceSize args, void *argp) {
     SceRtcTick last_tick, cur_tick;
     sceRtcGetCurrentTick(&last_tick);
 
-    // Log 1 game launch at session start
     update_daily_log(0, 1);
 
     while (running) {
-        sceKernelDelayThread(20 * 1000 * 1000); // Wake once every 20s
+        sceKernelDelayThread(20 * 1000 * 1000);
         sceRtcGetCurrentTick(&cur_tick);
 
         uint64_t diff_us = cur_tick.tick - last_tick.tick;
         last_tick = cur_tick;
 
-        // Ignore time if console was suspended in Sleep Mode (> 35 seconds elapsed)
         if (diff_us >= 1000000ULL && diff_us <= 35000000ULL) {
-            uint32_t secs = (uint32_t)(diff_us / 1000000ULL);
+            uint32_t secs = (uint32_t)diff_us / 1000000U;
             update_daily_log(secs, 0);
         }
     }
     return sceKernelExitDeleteThread(0);
 }
 
-void _start() __attribute__ ((weak, alias("module_start")));
+int module_start(SceSize argc, const void *args);
+int _start(SceSize argc, const void *args) __attribute__ ((weak, alias("module_start")));
 
 int module_start(SceSize argc, const void *args) {
     char titleid[32];
-    for (int i = 0; i < 32; i++) titleid[i] = 0;
+    for (int i = 0; i < 32; i++) titleid[i] = '\0';
 
     sceAppMgrAppParamGetString(0, 12, titleid, 32);
 
-    // Skip system apps (NPXS*) and the Activity Log viewer itself (ACTLOG3DS)
     if ((titleid[0] == 'N' && titleid[1] == 'P' && titleid[2] == 'X' && titleid[3] == 'S') ||
         str_equal(titleid, "ACTLOG3DS") || titleid[0] == '\0') {
         return SCE_KERNEL_START_NO_RESIDENT;
@@ -118,7 +116,7 @@ int module_start(SceSize argc, const void *args) {
 
     str_copy(current_title, titleid, 12);
     running = 1;
-    thid = sceKernelCreateThread(" actlog_thread", tracker_thread, 0x10000100, 0x4000, 0, 0, NULL);
+    thid = sceKernelCreateThread("actlog_thread", tracker_thread, 0x10000100, 0x4000, 0, 0, NULL);
     if (thid >= 0) {
         sceKernelStartThread(thid, 0, NULL);
     }
