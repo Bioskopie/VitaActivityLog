@@ -26,8 +26,8 @@ typedef struct {
 
 typedef struct {
     char title_id[12];
-    uint32_t base_seconds;
-} BaseRecord;
+    uint32_t seconds;
+} SnapshotRecord;
 
 typedef struct {
     char title_id[12];
@@ -134,6 +134,10 @@ static int find_or_add_game(const char *title_id) {
         snprintf(icon_path, sizeof(icon_path), "ux0:/app/%s/sce_sys/icon0.png", title_id);
         games[idx].icon = vita2d_load_PNG_file(icon_path);
     }
+    if (!games[idx].icon) {
+        snprintf(icon_path, sizeof(icon_path), "ux0:/data/TrackPlug/Icons/%s.png", title_id);
+        games[idx].icon = vita2d_load_PNG_file(icon_path);
+    }
     return idx;
 }
 
@@ -146,6 +150,7 @@ static void load_settings(void) {
 }
 
 static void save_settings(void) {
+    sceIoMkdir("ux0:/data", 0777);
     sceIoMkdir("ux0:/data/ActivityLog", 0777);
     SceUID fd = sceIoOpen("ux0:/data/ActivityLog/settings.bin", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
     if (fd >= 0) {
@@ -154,31 +159,88 @@ static void save_settings(void) {
     }
 }
 
-static void save_manual_base(const char *title_id, uint32_t base_seconds) {
+static void update_record_in_file(const char *path, const char *title_id, uint32_t secs) {
+    sceIoMkdir("ux0:/data", 0777);
     sceIoMkdir("ux0:/data/ActivityLog", 0777);
-    const char *path = "ux0:/data/ActivityLog/manual_base.bin";
     SceUID fd = sceIoOpen(path, SCE_O_RDWR | SCE_O_CREAT, 0777);
     if (fd < 0) return;
 
-    BaseRecord rec;
+    SnapshotRecord rec;
     SceOff offset = 0;
     int found = 0;
-    while (sceIoRead(fd, &rec, sizeof(BaseRecord)) == sizeof(BaseRecord)) {
+    while (sceIoRead(fd, &rec, sizeof(SnapshotRecord)) == sizeof(SnapshotRecord)) {
         if (strcmp(rec.title_id, title_id) == 0) {
-            rec.base_seconds = base_seconds;
+            rec.seconds = secs;
             sceIoLseek(fd, offset, SCE_SEEK_SET);
-            sceIoWrite(fd, &rec, sizeof(BaseRecord));
+            sceIoWrite(fd, &rec, sizeof(SnapshotRecord));
             found = 1;
             break;
         }
-        offset += sizeof(BaseRecord);
+        offset += sizeof(SnapshotRecord);
     }
     if (!found) {
-        memset(&rec, 0, sizeof(BaseRecord));
+        memset(&rec, 0, sizeof(SnapshotRecord));
         strncpy(rec.title_id, title_id, 11);
-        rec.base_seconds = base_seconds;
+        rec.seconds = secs;
         sceIoLseek(fd, 0, SCE_SEEK_END);
-        sceIoWrite(fd, &rec, sizeof(BaseRecord));
+        sceIoWrite(fd, &rec, sizeof(SnapshotRecord));
+    }
+    sceIoClose(fd);
+}
+
+static int get_record_from_file(const char *path, const char *title_id, uint32_t *out_secs) {
+    SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+    if (fd < 0) return 0;
+
+    SnapshotRecord rec;
+    while (sceIoRead(fd, &rec, sizeof(SnapshotRecord)) == sizeof(SnapshotRecord)) {
+        if (strcmp(rec.title_id, title_id) == 0) {
+            *out_secs = rec.seconds;
+            sceIoClose(fd);
+            return 1;
+        }
+    }
+    sceIoClose(fd);
+    return 0;
+}
+
+static void append_daily_playtime(const char *title_id, uint32_t add_secs, uint32_t add_launches) {
+    SceDateTime now;
+    sceRtcGetCurrentClockLocalTime(&now);
+    uint16_t y = sceRtcGetYear(&now);
+    uint8_t m  = sceRtcGetMonth(&now);
+    uint8_t d  = sceRtcGetDay(&now);
+
+    sceIoMkdir("ux0:/data", 0777);
+    sceIoMkdir("ux0:/data/ActivityLog", 0777);
+    const char *path = "ux0:/data/ActivityLog/daily.bin";
+    SceUID fd = sceIoOpen(path, SCE_O_RDWR | SCE_O_CREAT, 0777);
+    if (fd < 0) return;
+
+    DailyRecord rec;
+    SceOff offset = 0;
+    int found = 0;
+    while (sceIoRead(fd, &rec, sizeof(DailyRecord)) == sizeof(DailyRecord)) {
+        if (rec.year == y && rec.month == m && rec.day == d && strcmp(rec.title_id, title_id) == 0) {
+            rec.seconds += add_secs;
+            rec.launches += add_launches;
+            sceIoLseek(fd, offset, SCE_SEEK_SET);
+            sceIoWrite(fd, &rec, sizeof(DailyRecord));
+            found = 1;
+            break;
+        }
+        offset += sizeof(DailyRecord);
+    }
+    if (!found) {
+        memset(&rec, 0, sizeof(DailyRecord));
+        strncpy(rec.title_id, title_id, 11);
+        rec.year = y;
+        rec.month = m;
+        rec.day = d;
+        rec.seconds = add_secs;
+        rec.launches = add_launches;
+        sceIoLseek(fd, 0, SCE_SEEK_END);
+        sceIoWrite(fd, &rec, sizeof(DailyRecord));
     }
     sceIoClose(fd);
 }
@@ -197,6 +259,10 @@ static void load_daily_file(const char *path) {
 }
 
 static void scan_all_data(void) {
+    sceIoMkdir("ux0:/data", 0777);
+    sceIoMkdir("ux0:/data/ActivityLog", 0777);
+
+    // 1. Scan installed apps in ux0:/app
     SceUID dfd = sceIoDopen("ux0:/app");
     if (dfd >= 0) {
         SceIoDirent dir;
@@ -208,22 +274,43 @@ static void scan_all_data(void) {
         sceIoDclose(dfd);
     }
 
+    // 2. Sync with TrackPlug / BetterTrackPlug records and convert any new playtime into Today's Daily Log!
+    const char *snap_path = "ux0:/data/ActivityLog/tp_snapshot.bin";
+    const char *base_path = "ux0:/data/ActivityLog/manual_base.bin";
+
     dfd = sceIoDopen("ux0:/data/TrackPlug/Records");
     if (dfd >= 0) {
         SceIoDirent dir;
         while (sceIoDread(dfd, &dir) > 0) {
+            if (dir.d_name[0] == '.') continue;
             char tid[12];
-            strncpy(tid, dir.d_name, 9);
-            tid[9] = '\0';
+            memset(tid, 0, sizeof(tid));
+            for (int c = 0; c < 11 && dir.d_name[c] != '\0' && dir.d_name[c] != '.'; c++) {
+                tid[c] = dir.d_name[c];
+            }
+
             int idx = find_or_add_game(tid);
             if (idx >= 0) {
                 char rpath[128];
                 snprintf(rpath, sizeof(rpath), "ux0:/data/TrackPlug/Records/%s", dir.d_name);
                 SceUID rfd = sceIoOpen(rpath, SCE_O_RDONLY, 0);
                 if (rfd >= 0) {
-                    uint32_t tp_secs = 0;
-                    if (sceIoRead(rfd, &tp_secs, sizeof(uint32_t)) == sizeof(uint32_t)) {
-                        games[idx].base_seconds = tp_secs;
+                    uint32_t current_tp_secs = 0;
+                    if (sceIoRead(rfd, ¤t_tp_secs, sizeof(uint32_t)) == sizeof(uint32_t)) {
+                        uint32_t last_snap_secs = 0;
+                        if (!get_record_from_file(snap_path, tid, &last_snap_secs)) {
+                            // First time seeing this game: set as Baseline and save snapshot
+                            update_record_in_file(snap_path, tid, current_tp_secs);
+                            uint32_t existing_base = 0;
+                            if (!get_record_from_file(base_path, tid, &existing_base)) {
+                                update_record_in_file(base_path, tid, current_tp_secs);
+                            }
+                        } else if (current_tp_secs > last_snap_secs) {
+                            // Game was played since last check! Log the difference to Today's Date!
+                            uint32_t delta = current_tp_secs - last_snap_secs;
+                            append_daily_playtime(tid, delta, 1);
+                            update_record_in_file(snap_path, tid, current_tp_secs);
+                        }
                     }
                     sceIoClose(rfd);
                 }
@@ -232,20 +319,22 @@ static void scan_all_data(void) {
         sceIoDclose(dfd);
     }
 
-    SceUID bfd = sceIoOpen("ux0:/data/ActivityLog/manual_base.bin", SCE_O_RDONLY, 0);
+    // 3. Load Baseline Playtime (Imported or Manually Edited)
+    SceUID bfd = sceIoOpen(base_path, SCE_O_RDONLY, 0);
     if (bfd >= 0) {
-        BaseRecord rec;
-        while (sceIoRead(bfd, &rec, sizeof(BaseRecord)) == sizeof(BaseRecord)) {
+        SnapshotRecord rec;
+        while (sceIoRead(bfd, &rec, sizeof(SnapshotRecord)) == sizeof(SnapshotRecord)) {
             int idx = find_or_add_game(rec.title_id);
-            if (idx >= 0) games[idx].base_seconds = rec.base_seconds;
+            if (idx >= 0) games[idx].base_seconds = rec.seconds;
         }
         sceIoClose(bfd);
     }
 
+    // 4. Load Daily Logs
     if (!daily_logs) daily_logs = calloc(MAX_DAILY_RECORDS, sizeof(DailyRecord));
     daily_count = 0;
-    load_daily_file("ur0:/temp/actlog_daily.bin");
     load_daily_file("ux0:/data/ActivityLog/daily.bin");
+    load_daily_file("ur0:/temp/actlog_daily.bin");
 }
 
 static int days_in_month(int y, int m) {
@@ -391,7 +480,6 @@ int main(void) {
             save_settings();
         }
 
-        // Press START anytime to reload daily logs live
         if (pressed & SCE_CTRL_START) {
             scan_all_data();
             recalculate_stats(filter, &total_period_secs);
@@ -418,7 +506,7 @@ int main(void) {
 
                 if (pressed & BTN_CONFIRM) {
                     g->base_seconds = (uint32_t)(edit_hours * 3600 + edit_mins * 60);
-                    save_manual_base(g->title_id, g->base_seconds);
+                    update_record_in_file("ux0:/data/ActivityLog/manual_base.bin", g->title_id, g->base_seconds);
                     recalculate_stats(filter, &total_period_secs);
                     editing_time = 0;
                 } else if (pressed & BTN_CANCEL) {
