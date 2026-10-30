@@ -37,7 +37,7 @@ To make this app work properly on your PS Vita, your console must meet the follo
 1. Download the latest **`VitaActivityLog.vpk`** from the [Releases page](../../releases).
 2. Transfer `VitaActivityLog.vpk` to your PS Vita via USB or FTP using **VitaShell**.
 3. Open **VitaShell**, navigate to the `.vpk`, and press your confirm button to install it.
-4. *(Recommended)* Delete the installation bubble and reboot your Vita to ensure the LiveArea icon and background cache refresh properly.
+4. *(Recommended)* Reboot your Vita to ensure the LiveArea icon and background cache refresh properly.
 
 ---
 
