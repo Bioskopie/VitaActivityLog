@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<livearea style="multiframe">
+  <liveblock src="contents/liveblock.xml" />
+  <gate>
+    <startup>
+      <image>startup.png</image>
+    </startup>
+    <bg>
+      <image>bg.png</image>
+    </bg>
+  </gate>
+</livearea>
