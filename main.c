@@ -262,7 +262,6 @@ static void scan_all_data(void) {
     sceIoMkdir("ux0:/data", 0777);
     sceIoMkdir("ux0:/data/ActivityLog", 0777);
 
-    // 1. Scan installed apps in ux0:/app
     SceUID dfd = sceIoDopen("ux0:/app");
     if (dfd >= 0) {
         SceIoDirent dir;
@@ -274,7 +273,6 @@ static void scan_all_data(void) {
         sceIoDclose(dfd);
     }
 
-    // 2. Sync with TrackPlug / BetterTrackPlug records and convert any new playtime into Today's Daily Log!
     const char *snap_path = "ux0:/data/ActivityLog/tp_snapshot.bin";
     const char *base_path = "ux0:/data/ActivityLog/manual_base.bin";
 
@@ -295,21 +293,19 @@ static void scan_all_data(void) {
                 snprintf(rpath, sizeof(rpath), "ux0:/data/TrackPlug/Records/%s", dir.d_name);
                 SceUID rfd = sceIoOpen(rpath, SCE_O_RDONLY, 0);
                 if (rfd >= 0) {
-                    uint32_t current_tp_secs = 0;
-                    if (sceIoRead(rfd, ¤t_tp_secs, sizeof(uint32_t)) == sizeof(uint32_t)) {
+                    uint32_t now_tp_secs = 0;
+                    if (sceIoRead(rfd, &now_tp_secs, sizeof(uint32_t)) == sizeof(uint32_t)) {
                         uint32_t last_snap_secs = 0;
                         if (!get_record_from_file(snap_path, tid, &last_snap_secs)) {
-                            // First time seeing this game: set as Baseline and save snapshot
-                            update_record_in_file(snap_path, tid, current_tp_secs);
+                            update_record_in_file(snap_path, tid, now_tp_secs);
                             uint32_t existing_base = 0;
                             if (!get_record_from_file(base_path, tid, &existing_base)) {
-                                update_record_in_file(base_path, tid, current_tp_secs);
+                                update_record_in_file(base_path, tid, now_tp_secs);
                             }
-                        } else if (current_tp_secs > last_snap_secs) {
-                            // Game was played since last check! Log the difference to Today's Date!
-                            uint32_t delta = current_tp_secs - last_snap_secs;
+                        } else if (now_tp_secs > last_snap_secs) {
+                            uint32_t delta = now_tp_secs - last_snap_secs;
                             append_daily_playtime(tid, delta, 1);
-                            update_record_in_file(snap_path, tid, current_tp_secs);
+                            update_record_in_file(snap_path, tid, now_tp_secs);
                         }
                     }
                     sceIoClose(rfd);
@@ -319,7 +315,6 @@ static void scan_all_data(void) {
         sceIoDclose(dfd);
     }
 
-    // 3. Load Baseline Playtime (Imported or Manually Edited)
     SceUID bfd = sceIoOpen(base_path, SCE_O_RDONLY, 0);
     if (bfd >= 0) {
         SnapshotRecord rec;
@@ -330,11 +325,9 @@ static void scan_all_data(void) {
         sceIoClose(bfd);
     }
 
-    // 4. Load Daily Logs
     if (!daily_logs) daily_logs = calloc(MAX_DAILY_RECORDS, sizeof(DailyRecord));
     daily_count = 0;
     load_daily_file("ux0:/data/ActivityLog/daily.bin");
-    load_daily_file("ur0:/temp/actlog_daily.bin");
 }
 
 static int days_in_month(int y, int m) {
