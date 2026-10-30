@@ -1,0 +1,30 @@
+name: Build PS Vita Activity Log
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: vitasdk/vitasdk:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compile VPK and SUPRX Plugin
+        run: |
+          mkdir -p build
+          cd build
+          cmake ..
+          make -j$(nproc)
+
+      - name: Upload Compiled Vita Files
+        uses: actions/upload-artifact@v4
+        with:
+          name: VitaActivityLog-Release
+          path: |
+            build/VitaActivityLog.vpk
+            build/activity_log.suprx
